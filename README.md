@@ -7,41 +7,128 @@ A complete attendance management system with face recognition, leave management,
 - **Frontend:** React 18 + Vite + Tailwind CSS
 - **Backend:** Node.js + Express + Prisma ORM
 - **Database:** PostgreSQL 15
-- **Containerization:** Docker
 - **Face Recognition:** face-api.js
 
-## Quick Start
+## Prerequisites
 
-### Prerequisites
 - Node.js 18+
-- Docker Desktop
+- PostgreSQL 15+
 
-### 1. Start Database
-```bash
-docker-compose up -d postgres
+## Local Setup Instructions
+
+### 1. Install PostgreSQL
+
+Download and install PostgreSQL from https://www.postgresql.org/download/
+
+During installation:
+- Set the password for the postgres user
+- Make sure PostgreSQL is running on port 5432 (default)
+
+### 2. Create Database
+
+Open pgAdmin or psql and create the database:
+
+```sql
+CREATE DATABASE ems_attendance;
 ```
 
-### 2. Start Backend
+Or using psql command line:
+```bash
+psql -U postgres -c "CREATE DATABASE ems_attendance;"
+```
+
+### 3. Configure Environment Variables
+
+The backend is pre-configured with the following default settings in `backend/.env`:
+
+```
+DATABASE_URL="postgresql://ems_admin:EMS@2024Secure@localhost:5432/ems_attendance"
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=ems_admin
+DB_PASSWORD=EMS@2024Secure
+DB_NAME=ems_attendance
+JWT_SECRET=EMSLifestyle2024SecretKey@JWT!Secure
+JWT_EXPIRES_IN=8h
+PORT=3000
+NODE_ENV=development
+```
+
+**Note:** If you want to use different credentials, either:
+- Update the `backend/.env` file, OR
+- Create a PostgreSQL user matching the credentials above:
+
+```sql
+CREATE USER ems_admin WITH PASSWORD 'EMS@2024Secure';
+GRANT ALL PRIVILEGES ON DATABASE ems_attendance TO ems_admin;
+ALTER DATABASE ems_attendance OWNER TO ems_admin;
+```
+
+### 4. Install Backend Dependencies
+
 ```bash
 cd backend
 npm install
-npm run dev
 ```
 
-### 3. Start Frontend
+### 5. Setup Database Schema
+
+Generate Prisma client and push schema to database:
+
+```bash
+cd backend
+npx prisma generate
+npx prisma db push
+```
+
+Optionally seed the database with initial data:
+
+```bash
+cd backend
+npx prisma db seed
+```
+
+Or open Prisma Studio to view/edit data:
+
+```bash
+cd backend
+npx prisma studio
+```
+
+### 6. Start Backend
+
+```bash
+cd backend
+npm run dev    # Development mode with hot reload
+# OR
+npm start     # Production mode
+```
+
+Backend API will be available at: http://localhost:3000/api
+
+### 7. Install Frontend Dependencies
+
 ```bash
 cd frontend
 npm install
+```
+
+### 8. Start Frontend
+
+```bash
+cd frontend
 npm run dev
 ```
 
-### Access
+Frontend will be available at: http://localhost:5173
+
+## Access
+
 | Service | URL |
 |---------|-----|
 | Frontend | http://localhost:5173 |
 | Backend API | http://localhost:3000/api |
-| Prisma Studio | `npx prisma studio` (http://localhost:5555) |
-| pgAdmin | http://localhost:5050 |
+| Prisma Studio | http://localhost:5555 |
 
 ## Default Login
 
@@ -74,33 +161,6 @@ npm run dev
 | Manager | Department-level control |
 | Employee | Self-service only |
 
-## Environment Variables
-
-Create `backend/.env`:
-```env
-DATABASE_URL="postgresql://ems_admin:EMS@2024Secure@localhost:5432/ems_attendance"
-JWT_SECRET=your-secret-key
-JWT_EXPIRES_IN=8h
-PORT=3000
-NODE_ENV=development
-```
-
-## Docker Commands
-
-```bash
-# Start all services
-docker-compose up -d
-
-# Stop all services
-docker-compose down
-
-# Access database CLI
-docker exec -it ems_postgres psql -U ems_admin -d ems_attendance
-
-# View logs
-docker-compose logs -f backend
-```
-
 ## Database
 
 Managed by Prisma ORM. Key tables:
@@ -118,5 +178,7 @@ Managed by Prisma ORM. Key tables:
 cd backend
 npx prisma studio      # Open database GUI
 npx prisma migrate dev # Run migrations
-npx prisma generate    # Generate client
+npx prisma generate     # Generate client
+npx prisma db push     # Push schema to database
 ```
+
