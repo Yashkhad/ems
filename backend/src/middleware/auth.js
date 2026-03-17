@@ -24,7 +24,7 @@ const authenticate = async (req, res, next) => {
              FROM users u
              LEFT JOIN departments d ON u.department_id = d.id
              LEFT JOIN shifts s ON u.shift_id = s.id
-             WHERE u.id = $1 AND u.status = 'ACTIVE'`,
+             WHERE u.id = ? AND u.status = 'ACTIVE'`,
             [decoded.userId]
         );
         
@@ -114,7 +114,7 @@ const canAccessEmployee = async (req, res, next) => {
         // Managers can access their team members
         if (currentUser.role === 'MANAGER') {
             const result = await query(
-                'SELECT id FROM users WHERE manager_id = $1 AND id = $2',
+                'SELECT id FROM users WHERE manager_id = ? AND id = ?',
                 [currentUser.id, targetUserId]
             );
             
@@ -125,7 +125,7 @@ const canAccessEmployee = async (req, res, next) => {
         
         return res.status(403).json({
             success: false,
-            error: 'You do not have permission to access this employee\'s data'
+            error: "You do not have permission to access this employee's data"
         });
     } catch (error) {
         console.error('Authorization error:', error);

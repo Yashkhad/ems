@@ -6,47 +6,47 @@ A complete attendance management system with face recognition, leave management,
 
 - **Frontend:** React 18 + Vite + Tailwind CSS
 - **Backend:** Node.js + Express + Prisma ORM
-- **Database:** PostgreSQL 15
+- **Database:** MySQL 8.0
 - **Face Recognition:** face-api.js
 
 ## Prerequisites
 
 - Node.js 18+
-- PostgreSQL 15+
+- MySQL 8.0+
 
-## Local Setup Instructions
+## Local Setup Instructions (MySQL)
 
-### 1. Install PostgreSQL
+### 1. Install MySQL
 
-Download and install PostgreSQL from https://www.postgresql.org/download/
+Download and install MySQL from https://www.mysql.com/downloads/
 
 During installation:
-- Set the password for the postgres user
-- Make sure PostgreSQL is running on port 5432 (default)
+- Set the password for the root user
+- Make sure MySQL is running on port 3306 (default)
 
 ### 2. Create Database
 
-Open pgAdmin or psql and create the database:
+Open MySQL Workbench or mysql command line and create the database:
 
 ```sql
-CREATE DATABASE ems_attendance;
+CREATE DATABASE ems_attendance CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-Or using psql command line:
+Or using mysql command line:
 ```bash
-psql -U postgres -c "CREATE DATABASE ems_attendance;"
+mysql -u root -p -e "CREATE DATABASE ems_attendance CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ```
 
 ### 3. Configure Environment Variables
 
-The backend is pre-configured with the following default settings in `backend/.env`:
+Create a `.env` file in the `backend` directory with the following variables:
 
 ```
-DATABASE_URL="postgresql://ems_admin:EMS@2024Secure@localhost:5432/ems_attendance"
+DATABASE_URL="mysql://root:Harshal@06@localhost:3306/ems_attendance"
 DB_HOST=localhost
-DB_PORT=5432
-DB_USER=ems_admin
-DB_PASSWORD=EMS@2024Secure
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=Harshal@06
 DB_NAME=ems_attendance
 JWT_SECRET=EMSLifestyle2024SecretKey@JWT!Secure
 JWT_EXPIRES_IN=8h
@@ -54,14 +54,12 @@ PORT=3000
 NODE_ENV=development
 ```
 
-**Note:** If you want to use different credentials, either:
-- Update the `backend/.env` file, OR
-- Create a PostgreSQL user matching the credentials above:
+**Note:** If you want to use a different user, create one with appropriate privileges:
 
 ```sql
-CREATE USER ems_admin WITH PASSWORD 'EMS@2024Secure';
-GRANT ALL PRIVILEGES ON DATABASE ems_attendance TO ems_admin;
-ALTER DATABASE ems_attendance OWNER TO ems_admin;
+CREATE USER 'ems_admin'@'localhost' IDENTIFIED BY 'EMS@2024Secure';
+GRANT ALL PRIVILEGES ON ems_attendance.* TO 'ems_admin'@'localhost';
+FLUSH PRIVILEGES;
 ```
 
 ### 4. Install Backend Dependencies
@@ -95,7 +93,15 @@ cd backend
 npx prisma studio
 ```
 
-### 6. Start Backend
+### 6. (Optional) Run MySQL Stored Procedures
+
+If you want to use the stored procedures for attendance marking, run the init script:
+
+```bash
+mysql -u root -p ems_attendance < database/init_mysql.sql
+```
+
+### 7. Start Backend
 
 ```bash
 cd backend
@@ -106,14 +112,14 @@ npm start     # Production mode
 
 Backend API will be available at: http://localhost:3000/api
 
-### 7. Install Frontend Dependencies
+### 8. Install Frontend Dependencies
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 8. Start Frontend
+### 9. Start Frontend
 
 ```bash
 cd frontend
@@ -181,4 +187,15 @@ npx prisma migrate dev # Run migrations
 npx prisma generate     # Generate client
 npx prisma db push     # Push schema to database
 ```
+
+## Migration from PostgreSQL
+
+If you were using PostgreSQL previously:
+
+1. Export data from PostgreSQL
+2. Create new MySQL database
+3. Update `backend/prisma/schema.prisma` provider to `mysql`
+4. Run `npx prisma db push` to create tables
+5. Import data to MySQL
+6. Update environment variables to use MySQL connection string
 

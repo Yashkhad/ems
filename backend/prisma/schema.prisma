@@ -3,20 +3,19 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model Department {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String    @id @default(uuid()) @db.Char(36)
   name        String    @unique @db.VarChar(100)
   code        String    @unique @db.VarChar(20)
   description String?
-  headId      String?   @map("head_id") @db.Uuid
+  headId      String?   @map("head_id") @db.Char(36)
   isActive    Boolean?  @default(true) @map("is_active")
-  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
   head        User?     @relation("DepartmentHead", fields: [headId], references: [id], onUpdate: NoAction, map: "fk_department_head")
   users       User[]    @relation("UserDepartment")
 
@@ -24,7 +23,7 @@ model Department {
 }
 
 model Shift {
-  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                 String             @id @default(uuid()) @db.Char(36)
   name               String             @db.VarChar(100)
   code               String             @unique @db.VarChar(20)
   shiftType          ShiftType          @default(DAY) @map("shift_type")
@@ -34,8 +33,8 @@ model Shift {
   halfDayHours       Decimal?           @default(4.0) @map("half_day_hours") @db.Decimal(4, 2)
   fullDayHours       Decimal?           @default(8.0) @map("full_day_hours") @db.Decimal(4, 2)
   isActive           Boolean?           @default(true) @map("is_active")
-  createdAt          DateTime?          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime?          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt          DateTime?          @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt          DateTime?          @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
   attendanceRecords  AttendanceRecord[]
   users              User[]
 
@@ -43,7 +42,7 @@ model Shift {
 }
 
 model User {
-  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                String             @id @default(uuid()) @db.Char(36)
   employeeId        String             @unique @map("employee_id") @db.VarChar(20)
   email             String             @unique @db.VarChar(255)
   passwordHash      String             @map("password_hash") @db.VarChar(255)
@@ -52,17 +51,17 @@ model User {
   phone             String?            @db.VarChar(20)
   role              UserRole           @default(EMPLOYEE)
   status            UserStatus         @default(ACTIVE)
-  departmentId      String?            @map("department_id") @db.Uuid
-  shiftId           String?            @map("shift_id") @db.Uuid
-  managerId         String?            @map("manager_id") @db.Uuid
+  departmentId      String?            @map("department_id") @db.Char(36)
+  shiftId           String?            @map("shift_id") @db.Char(36)
+  managerId         String?            @map("manager_id") @db.Char(36)
   dateOfJoining     DateTime           @map("date_of_joining") @db.Date
   faceDescriptor    Json?              @map("face_descriptor")
-  faceRegisteredAt  DateTime?          @map("face_registered_at") @db.Timestamptz(6)
-  lastLogin         DateTime?          @map("last_login") @db.Timestamptz(6)
-  passwordChangedAt DateTime?          @map("password_changed_at") @db.Timestamptz(6)
-  createdAt         DateTime?          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime?          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  createdBy         String?            @map("created_by") @db.Uuid
+  faceRegisteredAt  DateTime?          @map("face_registered_at") @db.DateTime(6)
+  lastLogin         DateTime?          @map("last_login") @db.DateTime(6)
+  passwordChangedAt DateTime?          @map("password_changed_at") @db.DateTime(6)
+  createdAt         DateTime?          @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt         DateTime?          @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
+  createdBy         String?            @map("created_by") @db.Char(36)
   configUpdates     AttendanceConfig[]
   lockedAttendance  AttendanceRecord[] @relation("LockedBy")
   manualEntries     AttendanceRecord[] @relation("ManualEntryBy")
@@ -91,13 +90,13 @@ model User {
 }
 
 model AttendanceRecord {
-  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId                String           @map("user_id") @db.Uuid
+  id                    String           @id @default(uuid()) @db.Char(36)
+  userId                String           @map("user_id") @db.Char(36)
   date                  DateTime         @db.Date
-  checkInTime           DateTime?        @map("check_in_time") @db.Timestamptz(6)
-  checkOutTime          DateTime?        @map("check_out_time") @db.Timestamptz(6)
+  checkInTime           DateTime?        @map("check_in_time") @db.DateTime(6)
+  checkOutTime          DateTime?        @map("check_out_time") @db.DateTime(6)
   status                AttendanceStatus @default(ABSENT)
-  shiftId               String?          @map("shift_id") @db.Uuid
+  shiftId               String?          @map("shift_id") @db.Char(36)
   totalHours            Decimal?         @map("total_hours") @db.Decimal(5, 2)
   overtimeHours         Decimal?         @default(0) @map("overtime_hours") @db.Decimal(5, 2)
   isFaceVerified        Boolean?         @default(false) @map("is_face_verified")
@@ -105,13 +104,13 @@ model AttendanceRecord {
   checkInLocation       Json?            @map("check_in_location")
   checkOutLocation      Json?            @map("check_out_location")
   isManualEntry         Boolean?         @default(false) @map("is_manual_entry")
-  manualEntryById       String?          @map("manual_entry_by") @db.Uuid
+  manualEntryById       String?          @map("manual_entry_by") @db.Char(36)
   isLocked              Boolean?         @default(false) @map("is_locked")
-  lockedAt              DateTime?        @map("locked_at") @db.Timestamptz(6)
-  lockedById            String?          @map("locked_by") @db.Uuid
+  lockedAt              DateTime?        @map("locked_at") @db.DateTime(6)
+  lockedById            String?          @map("locked_by") @db.Char(36)
   notes                 String?
-  createdAt             DateTime?        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime?        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt             DateTime?        @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt             DateTime?        @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
   lockedBy              User?            @relation("LockedBy", fields: [lockedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   manualEntryBy         User?            @relation("ManualEntryBy", fields: [manualEntryById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   shift                 Shift?           @relation(fields: [shiftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -126,8 +125,8 @@ model AttendanceRecord {
 }
 
 model LeaveBalance {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId        String    @map("user_id") @db.Uuid
+  id            String    @id @default(uuid()) @db.Char(36)
+  userId        String    @map("user_id") @db.Char(36)
   year          Int
   casualTotal   Int?      @default(12) @map("casual_total")
   casualUsed    Int?      @default(0) @map("casual_used")
@@ -140,8 +139,8 @@ model LeaveBalance {
   paidPending   Int?      @default(0) @map("paid_pending")
   unpaidUsed    Int?      @default(0) @map("unpaid_used")
   unpaidPending Int?      @default(0) @map("unpaid_pending")
-  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt     DateTime? @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt     DateTime? @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([userId, year], map: "unique_user_year")
@@ -149,20 +148,20 @@ model LeaveBalance {
 }
 
 model LeaveRequest {
-  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId          String      @map("user_id") @db.Uuid
+  id              String      @id @default(uuid()) @db.Char(36)
+  userId          String      @map("user_id") @db.Char(36)
   leaveType       LeaveType   @map("leave_type")
   startDate       DateTime    @map("start_date") @db.Date
   endDate         DateTime    @map("end_date") @db.Date
   totalDays       Int         @map("total_days")
   reason          String
   status          LeaveStatus @default(PENDING)
-  approvedById    String?     @map("approved_by") @db.Uuid
-  approvedAt      DateTime?   @map("approved_at") @db.Timestamptz(6)
+  approvedById    String?     @map("approved_by") @db.Char(36)
+  approvedAt      DateTime?   @map("approved_at") @db.DateTime(6)
   rejectionReason String?     @map("rejection_reason")
   attachmentUrl   String?     @map("attachment_url")
-  createdAt       DateTime?   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime?   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt       DateTime?   @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt       DateTime?   @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
   approvedBy      User?       @relation("LeaveApprover", fields: [approvedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user            User        @relation("UserLeaveRequests", fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -174,15 +173,15 @@ model LeaveRequest {
 }
 
 model Holiday {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String    @id @default(uuid()) @db.Char(36)
   name        String    @db.VarChar(100)
   date        DateTime  @unique @db.Date
   description String?
   isOptional  Boolean?  @default(false) @map("is_optional")
   year        Int
-  createdById String?   @map("created_by") @db.Uuid
-  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById String?   @map("created_by") @db.Char(36)
+  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
   createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([date], map: "idx_holidays_date")
@@ -191,31 +190,31 @@ model Holiday {
 }
 
 model AttendanceConfig {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String    @id @default(uuid()) @db.Char(36)
   configKey   String    @unique @map("config_key") @db.VarChar(100)
-  configValue String    @map("config_value")
+  configValue String    @map("config_value") @db.Text
   description String?
   dataType    String?   @default("string") @map("data_type") @db.VarChar(20)
-  updatedById String?   @map("updated_by") @db.Uuid
-  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedById String?   @map("updated_by") @db.Char(36)
+  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.DateTime(6)
   updatedBy   User?     @relation(fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("attendance_config")
 }
 
 model AuditLog {
-  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId     String?     @map("user_id") @db.Uuid
+  id         String      @id @default(uuid()) @db.Char(36)
+  userId     String?     @map("user_id") @db.Char(36)
   action     AuditAction
   entityType String      @map("entity_type") @db.VarChar(50)
-  entityId   String?     @map("entity_id") @db.Uuid
+  entityId   String?     @map("entity_id") @db.Char(36)
   oldValues  Json?       @map("old_values")
   newValues  Json?       @map("new_values")
-  ipAddress  String?     @map("ip_address") @db.Inet
+  ipAddress  String?     @map("ip_address") @db.VarChar(45)
   userAgent  String?     @map("user_agent")
   reason     String?
-  createdAt  DateTime?   @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt  DateTime?   @default(now()) @map("created_at") @db.DateTime(6)
   user       User?       @relation(fields: [userId], references: [id], onUpdate: NoAction)
 
   @@index([action], map: "idx_audit_logs_action")
@@ -226,15 +225,15 @@ model AuditLog {
 }
 
 model UserSession {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String    @map("user_id") @db.Uuid
+  id           String    @id @default(uuid()) @db.Char(36)
+  userId       String    @map("user_id") @db.Char(36)
   tokenHash    String    @map("token_hash") @db.VarChar(255)
-  ipAddress    String?   @map("ip_address") @db.Inet
+  ipAddress    String?   @map("ip_address") @db.VarChar(45)
   userAgent    String?   @map("user_agent")
   isActive     Boolean?  @default(true) @map("is_active")
-  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
-  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  lastActivity DateTime? @default(now()) @map("last_activity") @db.Timestamptz(6)
+  expiresAt    DateTime  @map("expires_at") @db.DateTime(6)
+  createdAt    DateTime? @default(now()) @map("created_at") @db.DateTime(6)
+  lastActivity DateTime? @default(now()) @map("last_activity") @db.DateTime(6)
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([tokenHash], map: "idx_sessions_token")
@@ -310,3 +309,4 @@ enum AuditAction {
 
   @@map("audit_action")
 }
+

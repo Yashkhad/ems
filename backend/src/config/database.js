@@ -1,35 +1,38 @@
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 
-const pool = new Pool({
+const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT) || 5432,
-    user: process.env.DB_USER || 'ems_admin',
-    password: process.env.DB_PASSWORD || 'EMS@2024Secure',
+    port: parseInt(process.env.DB_PORT) || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'ems_attendance',
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    waitForConnections: true,
+    connectionLimit: 20,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0
 });
 
 // Test connection
-pool.on('connect', () => {
-    console.log('Database connected successfully');
-});
-
-pool.on('error', (err) => {
-    console.error('Unexpected database error:', err);
-});
+pool.getConnection()
+    .then(connection => {
+        console.log('Database connected successfully');
+        connection.release();
+    })
+    .catch(err => {
+        console.error('Database connection error:', err);
+    });
 
 // Helper function for queries
 const query = async (text, params) => {
     const start = Date.now();
     try {
-        const result = await pool.query(text, params);
+        const [rows, fields] = await pool.execute(text, params);
         const duration = Date.now() - start;
         if (process.env.NODE_ENV === 'development') {
-            console.log('Executed query', { text: text.substring(0, 100), duration, rows: result.rowCount });
+            console.log('Executed query', { text: text.substring(0, 100), duration, rows: rows.length });
         }
-        return result;
+        return { rows, rowCount: rows.length };
     } catch (error) {
         console.error('Database query error:', error);
         throw error;
@@ -38,17 +41,17 @@ const query = async (text, params) => {
 
 // Transaction helper
 const transaction = async (callback) => {
-    const client = await pool.connect();
+    const connection = await pool.getConnection();
     try {
-        await client.query('BEGIN');
-        const result = await callback(client);
-        await client.query('COMMIT');
+        await connection.beginTransaction();
+        const result = await callback(connection);
+        await connection.commit();
         return result;
     } catch (error) {
-        await client.query('ROLLBACK');
+        await connection.rollback();
         throw error;
     } finally {
-        client.release();
+        connection.release();
     }
 };
 
@@ -57,3 +60,4 @@ module.exports = {
     query,
     transaction
 };
+
