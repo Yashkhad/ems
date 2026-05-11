@@ -158,16 +158,24 @@ router.post('/face-login', async (req, res, next) => {
         let bestDistance = Infinity;
 
         for (const user of users) {
-            const storedFaceData = user.faceDescriptor;
-            if (!storedFaceData) continue;
+            let storedFaceData = user.faceDescriptor;
+            if (typeof storedFaceData === 'string') {
+                try {
+                    storedFaceData = JSON.parse(storedFaceData);
+                } catch (e) {
+                    console.error('Error parsing stored face descriptor:', e);
+                }
+            }
 
             let storedDescriptors = [];
-            if (storedFaceData.descriptor) {
-                storedDescriptors = [storedFaceData.descriptor];
-            } else if (storedFaceData.face_descriptors && Array.isArray(storedFaceData.face_descriptors)) {
-                storedDescriptors = storedFaceData.face_descriptors;
-            } else if (Array.isArray(storedFaceData)) {
-                storedDescriptors = [storedFaceData];
+            if (storedFaceData) {
+                if (storedFaceData.descriptor) {
+                    storedDescriptors = [storedFaceData.descriptor];
+                } else if (storedFaceData.face_descriptors && Array.isArray(storedFaceData.face_descriptors)) {
+                    storedDescriptors = storedFaceData.face_descriptors;
+                } else if (Array.isArray(storedFaceData)) {
+                    storedDescriptors = [storedFaceData];
+                }
             }
 
             for (const storedDescriptor of storedDescriptors) {
@@ -482,15 +490,25 @@ router.post('/forgot-password/reset', [
         }
 
         // Extract stored descriptors
-        const storedFaceData = user.faceDescriptor;
+        let storedFaceData = user.faceDescriptor;
+        if (typeof storedFaceData === 'string') {
+            try {
+                storedFaceData = JSON.parse(storedFaceData);
+            } catch (e) {
+                console.error('Error parsing stored face descriptor:', e);
+            }
+        }
+
         let storedDescriptors = [];
 
-        if (storedFaceData.descriptor) {
-            storedDescriptors = [storedFaceData.descriptor];
-        } else if (storedFaceData.face_descriptors && Array.isArray(storedFaceData.face_descriptors)) {
-            storedDescriptors = storedFaceData.face_descriptors;
-        } else if (Array.isArray(storedFaceData)) {
-            storedDescriptors = [storedFaceData];
+        if (storedFaceData) {
+            if (storedFaceData.descriptor) {
+                storedDescriptors = [storedFaceData.descriptor];
+            } else if (storedFaceData.face_descriptors && Array.isArray(storedFaceData.face_descriptors)) {
+                storedDescriptors = storedFaceData.face_descriptors;
+            } else if (Array.isArray(storedFaceData)) {
+                storedDescriptors = [storedFaceData];
+            }
         }
 
         if (storedDescriptors.length === 0) {

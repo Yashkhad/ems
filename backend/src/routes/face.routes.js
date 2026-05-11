@@ -62,7 +62,7 @@ router.post('/register', authenticate, upload.single('face_image'), async (req, 
         const user = await prisma.user.update({
             where: { id: req.user.id },
             data: {
-                faceDescriptor: descriptorData,
+                faceDescriptor: JSON.stringify(descriptorData),
                 faceRegisteredAt: new Date()
             },
             select: {
@@ -135,7 +135,7 @@ router.post('/register/:userId', authenticate, isHROrAdmin, upload.single('face_
         const user = await prisma.user.update({
             where: { id: userId },
             data: {
-                faceDescriptor: descriptorData,
+                faceDescriptor: JSON.stringify(descriptorData),
                 faceRegisteredAt: new Date()
             },
             select: {
@@ -194,6 +194,14 @@ router.post('/verify', authenticate, async (req, res, next) => {
             });
         }
 
+        let storedFaceData = user.faceDescriptor;
+        if (typeof storedFaceData === 'string') {
+            try {
+                storedFaceData = JSON.parse(storedFaceData);
+            } catch (e) {
+                console.error('Error parsing stored face descriptor:', e);
+            }
+        }
         // Parse input descriptor
         const inputDescriptor = typeof face_descriptor === 'string'
             ? JSON.parse(face_descriptor)
@@ -207,8 +215,6 @@ router.post('/verify', authenticate, async (req, res, next) => {
             });
         }
 
-        // Extract stored descriptor - handle different formats
-        const storedFaceData = user.faceDescriptor;
         let storedDescriptors = [];
 
         if (Array.isArray(storedFaceData)) {

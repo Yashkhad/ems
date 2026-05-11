@@ -85,6 +85,17 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/face', faceRoutes);
 app.use('/api/config', configRoutes);
 
+// Serve frontend in production
+if (process.env.NODE_ENV === 'production') {
+    const frontendPath = path.join(__dirname, '../../frontend/dist');
+    app.use(express.static(frontendPath));
+    
+    // For any other request, serve index.html (client-side routing)
+    app.get(/^(?!\/api).*/, (req, res) => {
+        res.sendFile(path.join(frontendPath, 'index.html'));
+    });
+}
+
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({

@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  ems-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/prisma/dev.db:/app/backend/prisma/dev.db
+      - ./backend/uploads:/app/backend/uploads
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:./prisma/dev.db
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_jwt_key_change_me}
+    restart: always

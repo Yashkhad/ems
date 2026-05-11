@@ -115,19 +115,59 @@ router.post('/check-in', authenticate, async (req, res, next) => {
             }
         }
 
-        // Call stored procedure via $queryRaw
-        const result = await prisma.$queryRaw`
-            SELECT mark_attendance(${req.user.id}::uuid, 'CHECK_IN', ${is_face_verified}::boolean, ${face_score || null}::decimal, ${locationData ? JSON.stringify(locationData) : null}::jsonb) as result
-        `;
+        // Handle attendance login for SQLite (Replacing MySQL stored procedure)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        const response = result[0].result;
+        const existingRecord = await prisma.attendanceRecord.findUnique({
+            where: {
+                userId_date: {
+                    userId: req.user.id,
+                    date: today
+                }
+            }
+        });
 
-        if (!response.success) {
-            return res.status(400).json({
-                success: false,
-                error: response.message
-            });
+        if (existingRecord) {
+            return res.status(400).json({ success: false, error: 'Already checked in today' });
         }
+
+        // Get user's shift for status determination
+        const userWithShift = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            include: { shift: true }
+        });
+
+        let attendanceStatus = 'PRESENT';
+        if (userWithShift.shift) {
+            const now = new Date();
+            const shiftStartTime = new Date(userWithShift.shift.startTime);
+            const graceThreshold = new Date(shiftStartTime.getTime() + (userWithShift.shift.gracePeriodMinutes || 15) * 60000);
+            
+            // Compare only the time part
+            const nowTime = now.getHours() * 60 + now.getMinutes();
+            const thresholdTime = graceThreshold.getHours() * 60 + graceThreshold.getMinutes();
+            
+            if (nowTime > thresholdTime) {
+                attendanceStatus = 'LATE';
+            }
+        }
+
+        const newRecord = await prisma.attendanceRecord.create({
+            data: {
+                userId: req.user.id,
+                date: today,
+                checkInTime: new Date(),
+                status: attendanceStatus,
+                shiftId: userWithShift.shiftId,
+                isFaceVerified: !!is_face_verified,
+                faceVerificationScore: face_score || null,
+                checkInLocation: locationData ? JSON.stringify(locationData) : null
+            }
+        });
+
+        const response = { success: true, message: 'Checked in successfully', check_in_time: newRecord.checkInTime, status: newRecord.status };
+
 
         await createAuditLog(req.user.id, 'CREATE', 'attendance_records', null, null,
             { action: 'CHECK_IN', is_face_verified, location_verified: locationVerificationRequired, distance: locationData?.distance_from_office }, 'Employee check-in with face verification', req.ip);
@@ -196,19 +236,46 @@ router.post('/check-out', authenticate, async (req, res, next) => {
             }
         }
 
-        // Call stored procedure via $queryRaw
-        const result = await prisma.$queryRaw`
-            SELECT mark_attendance(${req.user.id}::uuid, 'CHECK_OUT', false::boolean, null::decimal, ${locationData ? JSON.stringify(locationData) : null}::jsonb) as result
-        `;
+        // Handle check-out for SQLite
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        const response = result[0].result;
+        const existingRecord = await prisma.attendanceRecord.findUnique({
+            where: {
+                userId_date: {
+                    userId: req.user.id,
+                    date: today
+                }
+            }
+        });
 
-        if (!response.success) {
-            return res.status(400).json({
-                success: false,
-                error: response.message
-            });
+        if (!existingRecord || !existingRecord.checkInTime) {
+            return res.status(400).json({ success: false, error: 'No check-in record found for today' });
         }
+
+        if (existingRecord.checkOutTime) {
+            return res.status(400).json({ success: false, error: 'Already checked out today' });
+        }
+
+        const checkOutTime = new Date();
+        const checkInTime = new Date(existingRecord.checkInTime);
+        const totalHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
+
+        let finalStatus = existingRecord.status;
+        if (totalHours < 4) finalStatus = 'HALF_DAY';
+
+        const updatedRecord = await prisma.attendanceRecord.update({
+            where: { id: existingRecord.id },
+            data: {
+                checkOutTime: checkOutTime,
+                totalHours: totalHours,
+                status: finalStatus,
+                checkOutLocation: locationData ? JSON.stringify(locationData) : null
+            }
+        });
+
+        const response = { success: true, message: 'Checked out successfully', check_out_time: updatedRecord.checkOutTime, total_hours: totalHours, status: finalStatus };
+
 
         await createAuditLog(req.user.id, 'UPDATE', 'attendance_records', null, null,
             { action: 'CHECK_OUT', total_hours: response.total_hours, location_verified: locationVerificationRequired }, 'Employee check-out', req.ip);
@@ -271,18 +338,27 @@ const findUserByFaceDescriptor = async (faceDescriptor) => {
         // 2. { face_descriptors: [[...], [...]] } - multiple descriptors (from multi-image registration)
         // 3. Direct array [...] - raw descriptor
 
+        let storedFaceData = user.faceDescriptor;
+        if (typeof storedFaceData === 'string') {
+            try {
+                storedFaceData = JSON.parse(storedFaceData);
+            } catch (e) {
+                console.error('Error parsing face descriptor:', e);
+            }
+        }
+
         let storedDescriptors = [];
 
-        if (user.faceDescriptor) {
-            if (user.faceDescriptor.descriptor) {
+        if (storedFaceData) {
+            if (storedFaceData.descriptor) {
                 // Format 1: { descriptor: [...] }
-                storedDescriptors = [user.faceDescriptor.descriptor];
-            } else if (user.faceDescriptor.face_descriptors && Array.isArray(user.faceDescriptor.face_descriptors)) {
+                storedDescriptors = [storedFaceData.descriptor];
+            } else if (storedFaceData.face_descriptors && Array.isArray(storedFaceData.face_descriptors)) {
                 // Format 2: { face_descriptors: [[...], [...]] }
-                storedDescriptors = user.faceDescriptor.face_descriptors;
-            } else if (Array.isArray(user.faceDescriptor)) {
+                storedDescriptors = storedFaceData.face_descriptors;
+            } else if (Array.isArray(storedFaceData)) {
                 // Format 3: Direct array
-                storedDescriptors = [user.faceDescriptor];
+                storedDescriptors = [storedFaceData];
             }
         }
 
@@ -400,19 +476,58 @@ router.post('/public/check-in', async (req, res, next) => {
             });
         }
 
-        // Call stored procedure via $queryRaw
-        const result = await prisma.$queryRaw`
-            SELECT mark_attendance(${matchedUser.id}::uuid, 'CHECK_IN', true::boolean, ${matchedUser.score}::decimal, ${locationData ? JSON.stringify(locationData) : null}::jsonb) as result
-        `;
+        // Handle public check-in for SQLite (Replacing PostgreSQL stored procedure)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        const response = result[0].result;
+        const existingRecord = await prisma.attendanceRecord.findUnique({
+            where: {
+                userId_date: {
+                    userId: matchedUser.id,
+                    date: today
+                }
+            }
+        });
 
-        if (!response.success) {
-            return res.status(400).json({
-                success: false,
-                error: response.message
-            });
+        if (existingRecord) {
+            return res.status(400).json({ success: false, error: 'Already checked in today' });
         }
+
+        // Get user's shift
+        const userWithShift = await prisma.user.findUnique({
+            where: { id: matchedUser.id },
+            include: { shift: true }
+        });
+
+        let attendanceStatus = 'PRESENT';
+        if (userWithShift.shift) {
+            const now = new Date();
+            const shiftStartTime = new Date(userWithShift.shift.startTime);
+            const graceThreshold = new Date(shiftStartTime.getTime() + (userWithShift.shift.gracePeriodMinutes || 15) * 60000);
+            
+            const nowTime = now.getHours() * 60 + now.getMinutes();
+            const thresholdTime = graceThreshold.getHours() * 60 + graceThreshold.getMinutes();
+            
+            if (nowTime > thresholdTime) {
+                attendanceStatus = 'LATE';
+            }
+        }
+
+        const newRecord = await prisma.attendanceRecord.create({
+            data: {
+                userId: matchedUser.id,
+                date: today,
+                checkInTime: new Date(),
+                status: attendanceStatus,
+                shiftId: userWithShift.shiftId,
+                isFaceVerified: true,
+                faceVerificationScore: matchedUser.score,
+                checkInLocation: locationData ? JSON.stringify(locationData) : null
+            }
+        });
+
+        const responseResult = { success: true, check_in_time: newRecord.checkInTime, status: newRecord.status };
+
 
         await createAuditLog(matchedUser.id, 'CREATE', 'attendance_records', null, null,
             { action: 'PUBLIC_CHECK_IN', face_verified: true, face_score: matchedUser.score, location_verified: locationVerificationRequired },
@@ -424,8 +539,8 @@ router.post('/public/check-in', async (req, res, next) => {
             data: {
                 employee_id: matchedUser.employee_id,
                 employee_name: `${matchedUser.first_name} ${matchedUser.last_name}`,
-                check_in_time: response.check_in_time,
-                status: response.status,
+                check_in_time: responseResult.check_in_time,
+                status: responseResult.status,
                 verification: {
                     face_verified: true,
                     face_score: matchedUser.score,
@@ -503,19 +618,46 @@ router.post('/public/check-out', async (req, res, next) => {
             });
         }
 
-        // Call stored procedure via $queryRaw
-        const result = await prisma.$queryRaw`
-            SELECT mark_attendance(${matchedUser.id}::uuid, 'CHECK_OUT', false::boolean, null::decimal, ${locationData ? JSON.stringify(locationData) : null}::jsonb) as result
-        `;
+        // Handle public check-out for SQLite
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        const response = result[0].result;
+        const existingRecord = await prisma.attendanceRecord.findUnique({
+            where: {
+                userId_date: {
+                    userId: matchedUser.id,
+                    date: today
+                }
+            }
+        });
 
-        if (!response.success) {
-            return res.status(400).json({
-                success: false,
-                error: response.message
-            });
+        if (!existingRecord || !existingRecord.checkInTime) {
+            return res.status(400).json({ success: false, error: 'No check-in record found for today' });
         }
+
+        if (existingRecord.checkOutTime) {
+            return res.status(400).json({ success: false, error: 'Already checked out today' });
+        }
+
+        const checkOutTime = new Date();
+        const checkInTime = new Date(existingRecord.checkInTime);
+        const totalHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
+
+        let finalStatus = existingRecord.status;
+        if (totalHours < 4) finalStatus = 'HALF_DAY';
+
+        const updatedRecord = await prisma.attendanceRecord.update({
+            where: { id: existingRecord.id },
+            data: {
+                checkOutTime: checkOutTime,
+                totalHours: totalHours,
+                status: finalStatus,
+                checkOutLocation: locationData ? JSON.stringify(locationData) : null
+            }
+        });
+
+        const responseResultOut = { success: true, check_out_time: updatedRecord.checkOutTime, total_hours: totalHours, status: finalStatus };
+
 
         await createAuditLog(matchedUser.id, 'UPDATE', 'attendance_records', null, null,
             { action: 'PUBLIC_CHECK_OUT', face_verified: true, location_verified: locationVerificationRequired, total_hours: response.total_hours },
@@ -527,8 +669,8 @@ router.post('/public/check-out', async (req, res, next) => {
             data: {
                 employee_id: matchedUser.employee_id,
                 employee_name: `${matchedUser.first_name} ${matchedUser.last_name}`,
-                check_out_time: response.check_out_time,
-                total_hours: response.total_hours,
+                check_out_time: responseResultOut.check_out_time,
+                total_hours: responseResultOut.total_hours,
                 verification: {
                     face_verified: true,
                     location_verified: locationVerificationRequired,
@@ -870,15 +1012,25 @@ router.post('/lock', authenticate, authorize('ADMIN'), async (req, res, next) =>
             });
         }
 
-        // Call stored procedure via $queryRaw
-        const result = await prisma.$queryRaw`
-            SELECT lock_attendance_for_payroll(${req.user.id}::uuid, ${month}::integer, ${year}::integer) as result
-        `;
+        // Handle lock for SQLite
+        const startDate = new Date(year, month - 1, 1);
+        const endDate = new Date(year, month, 0);
+
+        const updateResult = await prisma.attendanceRecord.updateMany({
+            where: {
+                date: { gte: startDate, lte: endDate }
+            },
+            data: {
+                isLocked: true,
+                lockedAt: new Date(),
+                lockedById: req.user.id
+            }
+        });
 
         res.json({
             success: true,
             message: `Attendance locked for ${month}/${year}`,
-            data: result[0].result
+            data: { count: updateResult.count }
         });
     } catch (error) {
         next(error);

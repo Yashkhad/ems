@@ -48,8 +48,8 @@ const createAuditLog = async (userId, action, entityType, entityId, oldValues, n
                 action: action,
                 entityType: entityType,
                 entityId: entityId,
-                oldValues: oldValues || undefined,
-                newValues: newValues || undefined,
+                oldValues: oldValues ? JSON.stringify(oldValues) : null,
+                newValues: newValues ? JSON.stringify(newValues) : null,
                 reason: reason,
                 ipAddress: normalizedIp
             }

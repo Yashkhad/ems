@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { query } = require('../config/database');
+const prisma = require('../config/prisma');
 
 // Authentication middleware
 const authenticate = async (req, res, next) => {
@@ -18,25 +18,28 @@ const authenticate = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Get user from database
-        const result = await query(
-            `SELECT u.*, d.name as department_name, s.name as shift_name
-             FROM users u
-             LEFT JOIN departments d ON u.department_id = d.id
-             LEFT JOIN shifts s ON u.shift_id = s.id
-             WHERE u.id = ? AND u.status = 'ACTIVE'`,
-            [decoded.userId]
-        );
+        // Get user from database using Prisma
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId, status: 'ACTIVE' },
+            include: {
+                department: { select: { name: true } },
+                shift: { select: { name: true } }
+            }
+        });
         
-        if (result.rows.length === 0) {
+        if (!user) {
             return res.status(401).json({
                 success: false,
                 error: 'User not found or inactive'
             });
         }
         
-        // Attach user to request
-        req.user = result.rows[0];
+        // Attach user to request (mapping properties for compatibility)
+        req.user = {
+            ...user,
+            department_name: user.department?.name,
+            shift_name: user.shift?.name
+        };
         req.userId = decoded.userId;
         
         next();
@@ -113,12 +116,12 @@ const canAccessEmployee = async (req, res, next) => {
         
         // Managers can access their team members
         if (currentUser.role === 'MANAGER') {
-            const result = await query(
-                'SELECT id FROM users WHERE manager_id = ? AND id = ?',
-                [currentUser.id, targetUserId]
-            );
+            const teamMember = await prisma.user.findFirst({
+                where: { managerId: currentUser.id, id: targetUserId },
+                select: { id: true }
+            });
             
-            if (result.rows.length > 0) {
+            if (teamMember) {
                 return next();
             }
         }
