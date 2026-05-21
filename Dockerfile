@@ -10,9 +10,11 @@ RUN npm run build
 FROM node:18-alpine
 WORKDIR /app
 COPY backend/package*.json ./backend/
-RUN cd backend && npm install --production
-
+# Install all dependencies to get the Prisma CLI, then generate the client
+RUN cd backend && npm install
 COPY backend/ ./backend/
+RUN cd backend && npx prisma generate
+
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Expose port
