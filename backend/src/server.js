@@ -92,10 +92,11 @@ registerRoutes('');
 
 // Serve frontend in production
 if (process.env.NODE_ENV === 'production') {
-    const frontendPath = path.join(__dirname, '../../frontend/dist');
+    // Use absolute path to the built frontend assets
+    const frontendPath = path.resolve('frontend/dist');
     app.use(express.static(frontendPath));
     
-    // For any other request, serve index.html (client-side routing)
+    // Serve index.html for all non-API routes (client-side routing)
     app.get(/^(?!\/api).*/, (req, res) => {
         res.sendFile(path.join(frontendPath, 'index.html'));
     });
