@@ -94,7 +94,7 @@ Then run backend + frontend as usual.
 
 | Name | Value |
 |------|--------|
-| `DATABASE_URL` | Same Supabase URI as Step 2 |
+| `DATABASE_URL` | **Port 6543** URI with `?pgbouncer=true` (not the 5432 local URL) |
 | `JWT_SECRET` | Same secret as local (long random string) |
 | `JWT_EXPIRES_IN` | `8h` |
 | `NODE_ENV` | `production` |

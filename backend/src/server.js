@@ -73,10 +73,10 @@ const registerRoutes = (prefix = '') => {
         let dbStatus = 'unknown';
         try {
             const prisma = require('./config/prisma');
-            await prisma.$queryRaw`SELECT 1`;
+            await prisma.user.count();
             dbStatus = 'connected';
         } catch (e) {
-            dbStatus = e.message || 'error';
+            dbStatus = process.env.VERCEL ? 'error' : (e.message || 'error');
         }
         res.status(dbStatus === 'connected' ? 200 : 503).json({
             status: dbStatus === 'connected' ? 'healthy' : 'degraded',
