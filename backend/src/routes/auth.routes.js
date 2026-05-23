@@ -14,6 +14,9 @@ router.post('/login', [
     body('password').notEmpty()
 ], async (req, res, next) => {
     try {
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({ success: false, error: 'Server misconfigured: JWT_SECRET is not set' });
+        }
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ success: false, errors: errors.array() });

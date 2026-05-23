@@ -38,6 +38,7 @@
     "prisma": "^5.22.0"
   },
   "prisma": {
+    "schema": "prisma/schema.prisma",
     "seed": "node prisma/seed.js"
   },
   "engines": {

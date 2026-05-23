@@ -11,13 +11,16 @@
       "src": "backend/src/server.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["backend/prisma/schema.prisma", "backend/node_modules/.prisma/**"]
+        "maxLambdaSize": "50mb",
+        "includeFiles": [
+          "backend/prisma/schema.prisma",
+          "backend/node_modules/.prisma/**",
+          "backend/node_modules/@prisma/client/**"
+        ]
       }
-    },
-    { "src": "api/health.js", "use": "@vercel/node" }
+    }
   ],
   "routes": [
-    { "src": "/api/health", "dest": "api/health.js" },
     { "src": "/api/(.*)", "dest": "backend/src/server.js" },
     { "src": "/uploads/(.*)", "dest": "backend/src/server.js" },
     { "handle": "filesystem" },
