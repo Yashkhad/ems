@@ -76,7 +76,7 @@ const registerRoutes = (prefix = '') => {
             await prisma.$queryRaw`SELECT 1`;
             dbStatus = 'connected';
         } catch (e) {
-            dbStatus = process.env.NODE_ENV === 'production' ? 'error' : e.message;
+            dbStatus = e.message || 'error';
         }
         res.status(dbStatus === 'connected' ? 200 : 503).json({
             status: dbStatus === 'connected' ? 'healthy' : 'degraded',
