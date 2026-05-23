@@ -1,6 +1,5 @@
 {
   "version": 2,
-
   "builds": [
     {
       "src": "backend/src/server.js",
@@ -8,6 +7,10 @@
       "config": {
         "includeFiles": ["backend/prisma/**"]
       }
+    },
+    {
+      "src": "frontend/dist/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [

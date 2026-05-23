@@ -115,16 +115,12 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // Start server
+// The server is deployed as a Vercel serverless function; Vercel handles listening.
+// Uncomment the following block for local development only.
+/*
 app.listen(PORT, () => {
-    console.log(`
-╔════════════════════════════════════════════════════════════╗
-║                 EMS - Attendance Management API            ║
-╠════════════════════════════════════════════════════════════╣
-║  Server running on port: ${PORT}                              ║
-║  Environment: ${process.env.NODE_ENV || 'development'}                            ║
-║  API Base URL: http://localhost:${PORT}/api                   ║
-╚════════════════════════════════════════════════════════════╝
-    `);
+    console.log(`\n╔════════════════════════════════════════════════════════════╗\n║                 EMS - Attendance Management API            ║\n╠════════════════════════════════════════════════════════════╣\n║  Server running on port: ${PORT}                              ║\n║  Environment: ${process.env.NODE_ENV || 'development'}                            ║\n║  API Base URL: http://localhost:${PORT}/api                   ║\n╚════════════════════════════════════════════════════════════╝\n`);
 });
+*/
 
 module.exports = app;
