@@ -1,4 +1,6 @@
-require('dotenv').config();
+if (!process.env.VERCEL) {
+    require('dotenv').config();
+}
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -67,9 +69,18 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Health check and API routes helper
 const registerRoutes = (prefix = '') => {
-    app.get(`${prefix}/health`, (req, res) => {
-        res.status(200).json({
-            status: 'healthy',
+    app.get(`${prefix}/health`, async (req, res) => {
+        let dbStatus = 'unknown';
+        try {
+            const prisma = require('./config/prisma');
+            await prisma.$queryRaw`SELECT 1`;
+            dbStatus = 'connected';
+        } catch (e) {
+            dbStatus = process.env.NODE_ENV === 'production' ? 'error' : e.message;
+        }
+        res.status(dbStatus === 'connected' ? 200 : 503).json({
+            status: dbStatus === 'connected' ? 'healthy' : 'degraded',
+            database: dbStatus,
             timestamp: new Date().toISOString(),
             service: 'EMS Attendance API',
             version: '1.0.0'
