@@ -1,13 +1,14 @@
 {
   "version": 2,
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
   "builds": [
     {
       "src": "backend/src/server.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "frontend/dist/**",
-      "use": "@vercel/static"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["backend/prisma/**"]
+      }
     }
   ],
   "routes": [
@@ -16,8 +17,15 @@
       "dest": "backend/src/server.js"
     },
     {
+      "src": "/uploads/(.*)",
+      "dest": "backend/src/server.js"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
       "src": "/(.*)",
-      "dest": "frontend/dist/$1"
+      "dest": "/index.html"
     }
   ]
 }
