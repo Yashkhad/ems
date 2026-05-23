@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log(' Cleaning up database...');
   try {
-    await prisma.attendance.deleteMany();
+    await prisma.attendanceRecord.deleteMany();
     await prisma.auditLog.deleteMany();
     await prisma.leaveBalance.deleteMany();
     await prisma.leaveRequest.deleteMany();

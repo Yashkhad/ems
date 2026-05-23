@@ -22,15 +22,25 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token')
+      const cachedUser = localStorage.getItem('user')
+      if (cachedUser) {
+        try {
+          setUser(JSON.parse(cachedUser))
+        } catch {
+          localStorage.removeItem('user')
+        }
+      }
       if (token) {
         try {
           const response = await api.get('/auth/me')
           if (response.data.success) {
             setUser(response.data.data)
+            localStorage.setItem('user', JSON.stringify(response.data.data))
           }
-        } catch (error) {
+        } catch {
           localStorage.removeItem('token')
           localStorage.removeItem('user')
+          setUser(null)
         }
       }
       setIsLoading(false)

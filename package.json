@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "npm --prefix frontend install && npm --prefix frontend run build"
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "vercel-build": "npm --prefix backend install && npm --prefix backend exec prisma generate && npm --prefix frontend install && npm --prefix frontend run build",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "db:push": "npm --prefix backend exec prisma db push",
+    "db:seed": "npm --prefix backend exec prisma db seed"
   }
 }

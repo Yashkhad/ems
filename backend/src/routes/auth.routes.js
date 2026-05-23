@@ -6,13 +6,13 @@ const { body, validationResult } = require('express-validator');
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../config/prisma');
 const { createAuditLog } = require('../middleware/logger');
+const { toApiUser, toAuthUser } = require('../utils/userMapper');
 
 // Login
 router.post('/login', [
     body('email').isEmail().normalizeEmail(),
     body('password').notEmpty()
 ], async (req, res, next) => {
-    console.log(`[DEBUG] Login attempt for: ${req.body.email}`);
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -26,29 +26,25 @@ router.post('/login', [
             include: { department: true, shift: true }
         });
         if (!user) {
-            console.log(`[DEBUG] User not found: ${email}`);
             return res.status(401).json({ success: false, error: 'Invalid email or password' });
         }
-
-        console.log(`[DEBUG] User found: ${user.email}, status: ${user.status}`);
 
         if (user.status !== 'ACTIVE') {
             return res.status(403).json({ success: false, error: 'Account is inactive or suspended. Please contact HR.' });
         }
 
-        const isValidPassword = await bcrypt.compare(password, user.password_hash);
-        console.log(`[DEBUG] Password valid: ${isValidPassword}`);
+        const isValidPassword = await bcrypt.compare(password, user.passwordHash);
         if (!isValidPassword) {
             return res.status(401).json({ success: false, error: 'Invalid email or password' });
         }
 
         await prisma.user.update({
             where: { id: user.id },
-            data: { last_login: new Date() }
+            data: { lastLogin: new Date() }
         });
-        
+
         const token = jwt.sign(
-            { userId: user.id, role: user.role, employeeId: user.employee_id },
+            { userId: user.id, role: user.role, employeeId: user.employeeId },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
         );
@@ -58,23 +54,7 @@ router.post('/login', [
         res.json({
             success: true,
             message: 'Login successful',
-            data: {
-                token,
-                user: {
-                    id: user.id,
-                    employee_id: user.employee_id,
-                    email: user.email,
-                    first_name: user.first_name,
-                    last_name: user.last_name,
-                    full_name: `${user.first_name} ${user.last_name}`,
-                    role: user.role,
-                    department: user.department?.name || null,
-                    department_id: user.department_id,
-                    shift: user.shift?.name || null,
-                    shift_id: user.shift_id,
-                    face_registered: !!user.face_registered_at
-                }
-            }
+            data: { token, user: toAuthUser(user) }
         });
     } catch (error) {
         next(error);
@@ -91,7 +71,7 @@ router.post('/face-login', async (req, res, next) => {
         }
 
         const users = await prisma.user.findMany({
-            where: { status: 'ACTIVE', NOT: { face_registered_at: null } },
+            where: { status: 'ACTIVE', faceRegisteredAt: { not: null } },
             include: { department: true, shift: true }
         });
 
@@ -111,7 +91,7 @@ router.post('/face-login', async (req, res, next) => {
         let bestDistance = Infinity;
 
         for (const user of users) {
-            let storedFaceData = user.face_descriptor;
+            let storedFaceData = user.faceDescriptor;
             if (typeof storedFaceData === 'string') {
                 try { storedFaceData = JSON.parse(storedFaceData); } catch (e) {}
             }
@@ -132,38 +112,22 @@ router.post('/face-login', async (req, res, next) => {
 
         if (bestUser && bestDistance < threshold) {
             const token = jwt.sign(
-                { userId: bestUser.id, role: bestUser.role, employeeId: bestUser.employee_id },
+                { userId: bestUser.id, role: bestUser.role, employeeId: bestUser.employeeId },
                 process.env.JWT_SECRET,
                 { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
             );
 
             await prisma.user.update({
                 where: { id: bestUser.id },
-                data: { last_login: new Date() }
+                data: { lastLogin: new Date() }
             });
-            
+
             await createAuditLog(bestUser.id, 'LOGIN', 'users', bestUser.id, null, { method: 'face' }, 'User login via face recognition', req.ip);
 
             return res.json({
                 success: true,
                 message: 'Login successful',
-                data: {
-                    token,
-                    user: {
-                        id: bestUser.id,
-                        employee_id: bestUser.employee_id,
-                        email: bestUser.email,
-                        first_name: bestUser.first_name,
-                        last_name: bestUser.last_name,
-                        full_name: `${bestUser.first_name} ${bestUser.last_name}`,
-                        role: bestUser.role,
-                        department: bestUser.department?.name || null,
-                        department_id: bestUser.department_id,
-                        shift: bestUser.shift?.name || null,
-                        shift_id: bestUser.shift_id,
-                        face_registered: true
-                    }
-                }
+                data: { token, user: { ...toAuthUser(bestUser), face_registered: true } }
             });
         }
 
@@ -219,7 +183,7 @@ router.post('/change-password', [
             return res.status(404).json({ success: false, error: 'User not found' });
         }
 
-        const isValid = await bcrypt.compare(current_password, user.password_hash);
+        const isValid = await bcrypt.compare(current_password, user.passwordHash);
         if (!isValid) {
             return res.status(400).json({ success: false, error: 'Current password is incorrect' });
         }
@@ -227,7 +191,7 @@ router.post('/change-password', [
         const newPasswordHash = await bcrypt.hash(new_password, 12);
         await prisma.user.update({
             where: { id: decoded.userId },
-            data: { password_hash: newPasswordHash, password_changed_at: new Date() }
+            data: { passwordHash: newPasswordHash, passwordChangedAt: new Date() }
         });
 
         await createAuditLog(decoded.userId, 'UPDATE', 'users', decoded.userId, null, { action: 'password_change' }, 'Password changed', req.ip);
@@ -263,7 +227,7 @@ router.post('/forgot-password/initiate', [
         if (user.status !== 'ACTIVE') {
             return res.status(403).json({ success: false, error: 'Account is inactive or suspended. Please contact HR.' });
         }
-        if (!user.face_registered_at || !user.face_descriptor) {
+        if (!user.faceRegisteredAt || !user.faceDescriptor) {
             return res.status(400).json({ success: false, error: 'Face recognition is not registered for this account. Please contact HR to reset your password.' });
         }
         const resetToken = jwt.sign({ userId: user.id, purpose: 'password_reset' }, process.env.JWT_SECRET, { expiresIn: '10m' });
@@ -271,7 +235,7 @@ router.post('/forgot-password/initiate', [
         res.json({
             success: true,
             message: 'Email verified. Please verify your face to reset password.',
-            data: { reset_token: resetToken, user_name: `${user.first_name} ${user.last_name}`, employee_id: user.employee_id }
+            data: { reset_token: resetToken, user_name: `${user.firstName} ${user.lastName}`, employee_id: user.employeeId }
         });
     } catch (error) {
         next(error);
@@ -300,7 +264,7 @@ router.post('/forgot-password/reset', [
 
         const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
 
-        if (!user || !user.face_descriptor) {
+        if (!user || !user.faceDescriptor) {
             return res.status(400).json({ success: false, error: 'User not found or face not registered' });
         }
 
@@ -311,7 +275,7 @@ router.post('/forgot-password/reset', [
             return res.status(400).json({ success: false, error: 'Invalid face descriptor format' });
         }
 
-        let storedFaceData = user.face_descriptor;
+        let storedFaceData = user.faceDescriptor;
         if (typeof storedFaceData === 'string') { try { storedFaceData = JSON.parse(storedFaceData); } catch (e) {} }
 
         let storedDescriptors = [];
@@ -340,14 +304,14 @@ router.post('/forgot-password/reset', [
         const newPasswordHash = await bcrypt.hash(new_password, 12);
         await prisma.user.update({
             where: { id: user.id },
-            data: { password_hash: newPasswordHash, password_changed_at: new Date() }
+            data: { passwordHash: newPasswordHash, passwordChangedAt: new Date() }
         });
         await createAuditLog(user.id, 'UPDATE', 'users', user.id, null, { action: 'password_reset_success', method: 'face_recognition' }, 'Password reset via face recognition', req.ip);
 
         res.json({
             success: true,
             message: 'Password reset successfully! You can now login with your new password.',
-            data: { user_name: `${user.first_name} ${user.last_name}`, confidence_score: confidenceScore.toFixed(4) }
+            data: { user_name: `${user.firstName} ${user.lastName}`, confidence_score: confidenceScore.toFixed(4) }
         });
     } catch (error) {
         next(error);
@@ -379,33 +343,14 @@ router.get('/me', async (req, res, next) => {
         const leaveBalances = await prisma.leaveBalance.findMany({ where: { userId: decoded.userId, year: currentYear } });
         const lb = leaveBalances[0] || null;
 
-        res.json({
-            success: true,
-            data: {
-                id: user.id,
-                employee_id: user.employee_id,
-                email: user.email,
-                first_name: user.first_name,
-                last_name: user.last_name,
-                phone: user.phone,
-                role: user.role,
-                status: user.status,
-                date_of_joining: user.date_of_joining,
-                face_registered_at: user.face_registered_at,
-                last_login: user.last_login,
-                department_id: user.department_id,
-                department_name: user.department?.name || null,
-                shift_id: user.shift_id,
-                shift_name: user.shift?.name || null,
-                start_time: user.shift?.start_time || null,
-                end_time: user.shift?.end_time || null,
-                manager_name: user.manager ? `${user.manager.first_name} ${user.manager.last_name}` : null,
-                manager_email: user.manager?.email || null,
-                full_name: `${user.first_name} ${user.last_name}`,
-                face_registered: !!user.face_registered_at,
-                leave_balance: lb
-            }
+        const profile = toApiUser(user, {
+            start_time: user.shift?.startTime || null,
+            end_time: user.shift?.endTime || null,
+            manager_email: user.manager?.email || null,
+            leave_balance: lb
         });
+
+        res.json({ success: true, data: profile });
     } catch (error) {
         next(error);
     }

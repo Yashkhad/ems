@@ -7,12 +7,14 @@ const prisma = require('../config/prisma');
 const { authenticate, authorize, isAdmin, isHROrAdmin, isGMOrAdmin, isManagerOrAbove, canAccessEmployee } = require('../middleware/auth');
 const { userValidation } = require('../middleware/validators');
 const { createAuditLog } = require('../middleware/logger');
+const { toApiUser } = require('../utils/userMapper');
 
 const canManageUsers = authorize('ADMIN', 'HR', 'GM', 'MANAGER');
 
 // Get next employee ID for a department (preview)
 router.get('/next-employee-id/:departmentId', authenticate, canManageUsers, async (req, res, next) => {
     try {
+        const { departmentId } = req.params;
         const dept = await prisma.department.findUnique({
             where: { id: departmentId },
             select: { code: true }
@@ -20,13 +22,13 @@ router.get('/next-employee-id/:departmentId', authenticate, canManageUsers, asyn
         if (!dept) return res.status(404).json({ success: false, error: 'Department not found' });
         const deptCode = dept.code;
         const lastUser = await prisma.user.findFirst({
-            where: { employee_id: { startsWith: deptCode } },
-            orderBy: { employee_id: 'desc' },
-            select: { employee_id: true }
+            where: { employeeId: { startsWith: deptCode } },
+            orderBy: { employeeId: 'desc' },
+            select: { employeeId: true }
         });
         let nextNumber = 1;
-        if (lastUser && lastUser.employee_id) {
-            const numPart = lastUser.employee_id.replace(deptCode, '');
+        if (lastUser?.employeeId) {
+            const numPart = lastUser.employeeId.replace(deptCode, '');
             nextNumber = parseInt(numPart, 10) + 1;
         }
         res.json({
@@ -42,28 +44,6 @@ router.get('/', authenticate, canManageUsers, async (req, res, next) => {
         const { department_id, role, status, search, page = 1, limit = 20 } = req.query;
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
-        let conditions = [];
-        let params = [];
-
-        if (req.user.role === 'MANAGER') {
-            conditions.push('(u.department_id = ? OR u.manager_id = ?)');
-            params.push(req.user.department_id, req.user.id);
-        } else if (department_id) {
-            conditions.push('u.department_id = ?');
-            params.push(department_id);
-        }
-
-        if (role) { conditions.push('u.role = ?'); params.push(role); }
-        if (status) { conditions.push('u.status = ?'); params.push(status); }
-        if (search) {
-            conditions.push('(u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ? OR u.employee_id LIKE ?)');
-            const s = `%${search}%`;
-            params.push(s, s, s, s);
-        }
-
-        const whereStr = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
-
-        // Build Prisma where filter based on conditions
         const prismaWhere = {};
         if (req.user.role === 'MANAGER') {
           prismaWhere.OR = [
@@ -76,12 +56,16 @@ router.get('/', authenticate, canManageUsers, async (req, res, next) => {
         if (role) prismaWhere.role = role;
         if (status) prismaWhere.status = status;
         if (search) {
-          prismaWhere.OR = [
-            { firstName: { contains: search, mode: 'insensitive' } },
-            { lastName: { contains: search, mode: 'insensitive' } },
-            { email: { contains: search, mode: 'insensitive' } },
-            { employee_id: { contains: search, mode: 'insensitive' } }
+          const searchFilter = [
+            { firstName: { contains: search } },
+            { lastName: { contains: search } },
+            { email: { contains: search } },
+            { employeeId: { contains: search } }
           ];
+          prismaWhere.AND = prismaWhere.OR
+            ? [{ OR: prismaWhere.OR }, { OR: searchFilter }]
+            : [{ OR: searchFilter }];
+          delete prismaWhere.OR;
         }
         const users = await prisma.user.findMany({
           where: prismaWhere,
@@ -97,18 +81,9 @@ router.get('/', authenticate, canManageUsers, async (req, res, next) => {
         res.json({
             success: true,
             data: users.map(u => ({
-                id: u.id, employee_id: u.employee_id, email: u.email,
-                first_name: u.first_name, last_name: u.last_name, phone: u.phone,
-                role: u.role, status: u.status, is_active: u.status === 'ACTIVE',
-                date_of_joining: u.date_of_joining, joining_date: u.date_of_joining,
-                face_registered_at: u.face_registered_at, last_login: u.last_login,
-                created_at: u.created_at, department_id: u.department_id, shift_id: u.shift_id,
-                department_name: u.department?.name,
-                shift_name: u.shift?.name,
-                manager_name: u.manager ? `${u.manager.firstName} ${u.manager.lastName}` : null,
-                manager_id: u.manager_id,
-                full_name: `${u.first_name} ${u.last_name}`,
-                face_registered: !!u.face_registered_at
+                ...toApiUser(u),
+                is_active: u.status === 'ACTIVE',
+                joining_date: u.dateOfJoining
             })),
             pagination: {
                 page: parseInt(page), limit: parseInt(limit),
@@ -292,13 +267,13 @@ router.post('/', authenticate, canManageUsers, userValidation.create, async (req
           if (dept) {
             const deptCode = dept.code;
             const lastUser = await prisma.user.findFirst({
-              where: { employee_id: { startsWith: deptCode } },
-              orderBy: { employee_id: 'desc' },
-              select: { employee_id: true }
+              where: { employeeId: { startsWith: deptCode } },
+              orderBy: { employeeId: 'desc' },
+              select: { employeeId: true }
             });
             let nextNumber = 1;
-            if (lastUser && lastUser.employee_id) {
-              const numPart = lastUser.employee_id.replace(deptCode, '');
+            if (lastUser?.employeeId) {
+              const numPart = lastUser.employeeId.replace(deptCode, '');
               nextNumber = parseInt(numPart, 10) + 1;
             }
             employee_id = deptCode + nextNumber.toString().padStart(3, '0');
@@ -306,62 +281,49 @@ router.post('/', authenticate, canManageUsers, userValidation.create, async (req
         }
         if (!employee_id) {
           const lastUser = await prisma.user.findFirst({
-            where: { employee_id: { startsWith: 'EMS' } },
-            orderBy: { employee_id: 'desc' },
-            select: { employee_id: true }
+            where: { employeeId: { startsWith: 'EMS' } },
+            orderBy: { employeeId: 'desc' },
+            select: { employeeId: true }
           });
           let nextNumber = 1;
-          if (lastUser && lastUser.employee_id) {
-            const numPart = lastUser.employee_id.replace('EMS', '');
+          if (lastUser?.employeeId) {
+            const numPart = lastUser.employeeId.replace('EMS', '');
             nextNumber = parseInt(numPart, 10) + 1;
           }
           employee_id = 'EMS' + nextNumber.toString().padStart(3, '0');
         }
 
         const finalDateOfJoining = date_of_joining ? new Date(date_of_joining) : joining_date ? new Date(joining_date) : new Date();
-        const password_hash = await bcrypt.hash(password, 12);
+        const passwordHash = await bcrypt.hash(password, 12);
         const newId = uuidv4();
 
-        // Create new user using Prisma transaction
-        const newUser = await prisma.$transaction([
+        await prisma.$transaction([
           prisma.user.create({
             data: {
               id: newId,
-              employee_id,
+              employeeId: employee_id,
               email,
-              password_hash,
-              first_name,
-              last_name,
+              passwordHash,
+              firstName: first_name,
+              lastName: last_name,
               phone: phone || null,
               role: role || 'EMPLOYEE',
               status: 'ACTIVE',
               departmentId: finalDepartmentId || undefined,
               shiftId: shift_id || undefined,
               managerId: manager_id || (req.user.role === 'MANAGER' ? req.user.id : undefined),
-              date_of_joining: finalDateOfJoining,
-              created_by: req.user.id,
-              created_at: new Date(),
-              updated_at: new Date()
+              dateOfJoining: finalDateOfJoining,
+              createdBy: req.user.id
             }
           }),
           prisma.leaveBalance.create({
             data: {
               id: uuidv4(),
               userId: newId,
-              year: new Date().getFullYear(),
-              created_at: new Date(),
-              updated_at: new Date()
+              year: new Date().getFullYear()
             }
           })
         ]);
-
-        await createAuditLog(req.user.id, 'CREATE', 'users', newId, null, { employee_id, email, role: role || 'EMPLOYEE' }, 'New user created', req.ip);
-
-        res.status(201).json({
-          success: true,
-          message: 'User created successfully',
-          data: { id: newId, employee_id, email, first_name, last_name, role: role || 'EMPLOYEE', status: 'ACTIVE' }
-        });
 
         await createAuditLog(req.user.id, 'CREATE', 'users', newId, null, { employee_id, email, role: role || 'EMPLOYEE' }, 'New user created', req.ip);
 
@@ -470,11 +432,10 @@ router.post('/:id/reset-password', authenticate, isAdmin, async (req, res, next)
             return res.status(400).json({ success: false, error: 'New password must be at least 8 characters' });
         }
 
-        const password_hash = await bcrypt.hash(new_password, 12);
-        // Reset password using Prisma
+        const passwordHash = await bcrypt.hash(new_password, 12);
         const updated = await prisma.user.update({
           where: { id },
-          data: { password_hash, password_changed_at: new Date(), updated_at: new Date() }
+          data: { passwordHash, passwordChangedAt: new Date() }
         });
 
         if (!updated) return res.status(404).json({ success: false, error: 'User not found' });

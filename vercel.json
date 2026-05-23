@@ -1,11 +1,17 @@
 {
   "version": 2,
-  "buildCommand": "npm --prefix frontend install && npm --prefix frontend run build",
+  "buildCommand": "npm run vercel-build",
   "outputDirectory": "frontend/dist",
+  "installCommand": "npm run install:all",
+  "env": {
+    "NODE_ENV": "production"
+  },
   "builds": [
-    { "src": "backend/src/server.js", "use": "@vercel/node" }
+    { "src": "backend/src/server.js", "use": "@vercel/node" },
+    { "src": "api/health.js", "use": "@vercel/node" }
   ],
   "routes": [
+    { "src": "/api/health", "dest": "api/health.js" },
     { "src": "/api/(.*)", "dest": "backend/src/server.js" },
     { "src": "/uploads/(.*)", "dest": "backend/src/server.js" },
     { "handle": "filesystem" },

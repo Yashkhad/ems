@@ -39,13 +39,15 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Rate limiting
+// Rate limiting (enabled in production)
 const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
     max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
     message: { error: 'Too many requests, please try again later.' }
 });
-// app.use('/api/', limiter);
+if (process.env.NODE_ENV === 'production') {
+    app.use('/api/', limiter);
+}
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
@@ -114,13 +116,11 @@ app.use((req, res) => {
 // Error handling middleware
 app.use(errorHandler);
 
-// Start server
-// The server is deployed as a Vercel serverless function; Vercel handles listening.
-// Uncomment the following block for local development only.
-/*
-app.listen(PORT, () => {
-    console.log(`\n╔════════════════════════════════════════════════════════════╗\n║                 EMS - Attendance Management API            ║\n╠════════════════════════════════════════════════════════════╣\n║  Server running on port: ${PORT}                              ║\n║  Environment: ${process.env.NODE_ENV || 'development'}                            ║\n║  API Base URL: http://localhost:${PORT}/api                   ║\n╚════════════════════════════════════════════════════════════╝\n`);
-});
-*/
+// Start server locally; Vercel serverless imports app without listening
+if (require.main === module && !process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`EMS API running on http://localhost:${PORT}/api (${process.env.NODE_ENV || 'development'})`);
+    });
+}
 
 module.exports = app;
