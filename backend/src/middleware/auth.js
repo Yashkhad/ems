@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const pool = require('../config/db');
+const prisma = require('../config/prisma');
 
 // Authentication middleware
 const authenticate = async (req, res, next) => {
@@ -16,24 +16,33 @@ const authenticate = async (req, res, next) => {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Get user from database using mysql2
-        const [rows] = await pool.execute(
-            `SELECT u.*, d.name AS department_name, s.name AS shift_name
-             FROM users u
-             LEFT JOIN departments d ON u.department_id = d.id
-             LEFT JOIN shifts s ON u.shift_id = s.id
-             WHERE u.id = ? AND u.status = 'ACTIVE'`,
-            [decoded.userId]
-        );
+        // Get user from database using Prisma
+        const dbUser = await prisma.user.findFirst({
+            where: { id: decoded.userId, status: 'ACTIVE' },
+            include: {
+                department: { select: { name: true } },
+                shift: { select: { name: true } }
+            }
+        });
         
-        if (rows.length === 0) {
+        if (!dbUser) {
             return res.status(401).json({
                 success: false,
                 error: 'User not found or inactive'
             });
         }
         
-        const user = rows[0];
+        // Flatten fields to maintain compatibility with legacy raw SQL queries
+        const user = {
+            ...dbUser,
+            employee_id: dbUser.employeeId,
+            password_hash: dbUser.passwordHash,
+            first_name: dbUser.firstName,
+            last_name: dbUser.lastName,
+            face_registered_at: dbUser.faceRegisteredAt,
+            department_name: dbUser.department?.name || null,
+            shift_name: dbUser.shift?.name || null
+        };
         req.user = user;
         req.userId = decoded.userId;
         
@@ -102,12 +111,15 @@ const canAccessEmployee = async (req, res, next) => {
         }
         
         if (currentUser.role === 'MANAGER') {
-            const [rows] = await pool.execute(
-                'SELECT id FROM users WHERE manager_id = ? AND id = ?',
-                [currentUser.id, targetUserId]
-            );
+            const targetUser = await prisma.user.findFirst({
+                where: {
+                    managerId: currentUser.id,
+                    id: targetUserId
+                },
+                select: { id: true }
+            });
             
-            if (rows.length > 0) {
+            if (targetUser) {
                 return next();
             }
         }

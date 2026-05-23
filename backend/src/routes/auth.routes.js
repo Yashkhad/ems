@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const { v4: uuidv4 } = require('uuid');
-const pool = require('../config/db');
+const prisma = require('../config/prisma');
 const { createAuditLog } = require('../middleware/logger');
 
 // Login
@@ -21,21 +21,15 @@ router.post('/login', [
 
         const { email, password } = req.body;
 
-        const [rows] = await pool.execute(
-            `SELECT u.*, d.name AS department_name, s.name AS shift_name
-             FROM users u
-             LEFT JOIN departments d ON u.department_id = d.id
-             LEFT JOIN shifts s ON u.shift_id = s.id
-             WHERE u.email = ?`,
-            [email]
-        );
-
-        if (rows.length === 0) {
+        const user = await prisma.user.findUnique({
+            where: { email },
+            include: { department: true, shift: true }
+        });
+        if (!user) {
             console.log(`[DEBUG] User not found: ${email}`);
             return res.status(401).json({ success: false, error: 'Invalid email or password' });
         }
 
-        const user = rows[0];
         console.log(`[DEBUG] User found: ${user.email}, status: ${user.status}`);
 
         if (user.status !== 'ACTIVE') {
@@ -48,13 +42,17 @@ router.post('/login', [
             return res.status(401).json({ success: false, error: 'Invalid email or password' });
         }
 
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { last_login: new Date() }
+        });
+        
         const token = jwt.sign(
             { userId: user.id, role: user.role, employeeId: user.employee_id },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
         );
 
-        await pool.execute('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
         await createAuditLog(user.id, 'LOGIN', 'users', user.id, null, null, 'User login', req.ip);
 
         res.json({
@@ -70,9 +68,9 @@ router.post('/login', [
                     last_name: user.last_name,
                     full_name: `${user.first_name} ${user.last_name}`,
                     role: user.role,
-                    department: user.department_name || null,
+                    department: user.department?.name || null,
                     department_id: user.department_id,
-                    shift: user.shift_name || null,
+                    shift: user.shift?.name || null,
                     shift_id: user.shift_id,
                     face_registered: !!user.face_registered_at
                 }
@@ -92,13 +90,10 @@ router.post('/face-login', async (req, res, next) => {
             return res.status(400).json({ success: false, error: 'Face descriptor is required' });
         }
 
-        const [users] = await pool.execute(
-            `SELECT u.*, d.name AS department_name, s.name AS shift_name
-             FROM users u
-             LEFT JOIN departments d ON u.department_id = d.id
-             LEFT JOIN shifts s ON u.shift_id = s.id
-             WHERE u.status = 'ACTIVE' AND u.face_registered_at IS NOT NULL`
-        );
+        const users = await prisma.user.findMany({
+            where: { status: 'ACTIVE', NOT: { face_registered_at: null } },
+            include: { department: true, shift: true }
+        });
 
         if (users.length === 0) {
             return res.status(401).json({ success: false, error: 'No registered faces found in the system' });
@@ -142,7 +137,11 @@ router.post('/face-login', async (req, res, next) => {
                 { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
             );
 
-            await pool.execute('UPDATE users SET last_login = NOW() WHERE id = ?', [bestUser.id]);
+            await prisma.user.update({
+                where: { id: bestUser.id },
+                data: { last_login: new Date() }
+            });
+            
             await createAuditLog(bestUser.id, 'LOGIN', 'users', bestUser.id, null, { method: 'face' }, 'User login via face recognition', req.ip);
 
             return res.json({
@@ -158,9 +157,9 @@ router.post('/face-login', async (req, res, next) => {
                         last_name: bestUser.last_name,
                         full_name: `${bestUser.first_name} ${bestUser.last_name}`,
                         role: bestUser.role,
-                        department: bestUser.department_name || null,
+                        department: bestUser.department?.name || null,
                         department_id: bestUser.department_id,
-                        shift: bestUser.shift_name || null,
+                        shift: bestUser.shift?.name || null,
                         shift_id: bestUser.shift_id,
                         face_registered: true
                     }
@@ -215,22 +214,21 @@ router.post('/change-password', [
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const { current_password, new_password } = req.body;
 
-        const [rows] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.userId]);
-        if (rows.length === 0) {
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+        if (!user) {
             return res.status(404).json({ success: false, error: 'User not found' });
         }
 
-        const user = rows[0];
         const isValid = await bcrypt.compare(current_password, user.password_hash);
         if (!isValid) {
             return res.status(400).json({ success: false, error: 'Current password is incorrect' });
         }
 
         const newPasswordHash = await bcrypt.hash(new_password, 12);
-        await pool.execute(
-            'UPDATE users SET password_hash = ?, password_changed_at = NOW() WHERE id = ?',
-            [newPasswordHash, decoded.userId]
-        );
+        await prisma.user.update({
+            where: { id: decoded.userId },
+            data: { password_hash: newPasswordHash, password_changed_at: new Date() }
+        });
 
         await createAuditLog(decoded.userId, 'UPDATE', 'users', decoded.userId, null, { action: 'password_change' }, 'Password changed', req.ip);
 
@@ -258,19 +256,16 @@ router.post('/forgot-password/initiate', [
         if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
 
         const { email } = req.body;
-        const [rows] = await pool.execute(
-            'SELECT id, employee_id, first_name, last_name, email, status, face_registered_at, face_descriptor FROM users WHERE email = ?',
-            [email]
-        );
-
-        if (rows.length === 0) return res.status(404).json({ success: false, error: 'No account found with this email address' });
-
-        const user = rows[0];
-        if (user.status !== 'ACTIVE') return res.status(403).json({ success: false, error: 'Account is inactive or suspended. Please contact HR.' });
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'No account found with this email address' });
+        }
+        if (user.status !== 'ACTIVE') {
+            return res.status(403).json({ success: false, error: 'Account is inactive or suspended. Please contact HR.' });
+        }
         if (!user.face_registered_at || !user.face_descriptor) {
             return res.status(400).json({ success: false, error: 'Face recognition is not registered for this account. Please contact HR to reset your password.' });
         }
-
         const resetToken = jwt.sign({ userId: user.id, purpose: 'password_reset' }, process.env.JWT_SECRET, { expiresIn: '10m' });
 
         res.json({
@@ -303,16 +298,12 @@ router.post('/forgot-password/reset', [
             return res.status(400).json({ success: false, error: 'Reset session expired or invalid. Please start again.' });
         }
 
-        const [rows] = await pool.execute(
-            'SELECT id, employee_id, first_name, last_name, email, face_descriptor FROM users WHERE id = ?',
-            [decoded.userId]
-        );
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
 
-        if (rows.length === 0 || !rows[0].face_descriptor) {
+        if (!user || !user.face_descriptor) {
             return res.status(400).json({ success: false, error: 'User not found or face not registered' });
         }
 
-        const user = rows[0];
         let inputDescriptor;
         try {
             inputDescriptor = typeof face_descriptor === 'string' ? JSON.parse(face_descriptor) : face_descriptor;
@@ -347,7 +338,10 @@ router.post('/forgot-password/reset', [
         }
 
         const newPasswordHash = await bcrypt.hash(new_password, 12);
-        await pool.execute('UPDATE users SET password_hash = ?, password_changed_at = NOW() WHERE id = ?', [newPasswordHash, user.id]);
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { password_hash: newPasswordHash, password_changed_at: new Date() }
+        });
         await createAuditLog(user.id, 'UPDATE', 'users', user.id, null, { action: 'password_reset_success', method: 'face_recognition' }, 'Password reset via face recognition', req.ip);
 
         res.json({
@@ -371,25 +365,19 @@ router.get('/me', async (req, res, next) => {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        const [rows] = await pool.execute(
-            `SELECT u.id, u.employee_id, u.email, u.first_name, u.last_name, u.phone, u.role, u.status,
-                    u.date_of_joining, u.face_registered_at, u.last_login, u.department_id, u.shift_id, u.manager_id,
-                    d.id AS dept_id, d.name AS department_name,
-                    s.id AS s_id, s.name AS shift_name, s.start_time, s.end_time,
-                    m.first_name AS manager_first_name, m.last_name AS manager_last_name, m.email AS manager_email
-             FROM users u
-             LEFT JOIN departments d ON u.department_id = d.id
-             LEFT JOIN shifts s ON u.shift_id = s.id
-             LEFT JOIN users m ON u.manager_id = m.id
-             WHERE u.id = ?`,
-            [decoded.userId]
-        );
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            include: {
+                department: true,
+                shift: true,
+                manager: true
+            }
+        });
+        if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-        if (rows.length === 0) return res.status(404).json({ success: false, error: 'User not found' });
-
-        const user = rows[0];
         const currentYear = new Date().getFullYear();
-        const [lb] = await pool.execute('SELECT * FROM leave_balances WHERE user_id = ? AND year = ?', [decoded.userId, currentYear]);
+        const leaveBalances = await prisma.leaveBalance.findMany({ where: { userId: decoded.userId, year: currentYear } });
+        const lb = leaveBalances[0] || null;
 
         res.json({
             success: true,
@@ -406,16 +394,16 @@ router.get('/me', async (req, res, next) => {
                 face_registered_at: user.face_registered_at,
                 last_login: user.last_login,
                 department_id: user.department_id,
-                department_name: user.department_name || null,
+                department_name: user.department?.name || null,
                 shift_id: user.shift_id,
-                shift_name: user.shift_name || null,
-                start_time: user.start_time || null,
-                end_time: user.end_time || null,
-                manager_name: user.manager_first_name ? `${user.manager_first_name} ${user.manager_last_name}` : null,
-                manager_email: user.manager_email || null,
+                shift_name: user.shift?.name || null,
+                start_time: user.shift?.start_time || null,
+                end_time: user.shift?.end_time || null,
+                manager_name: user.manager ? `${user.manager.first_name} ${user.manager.last_name}` : null,
+                manager_email: user.manager?.email || null,
                 full_name: `${user.first_name} ${user.last_name}`,
                 face_registered: !!user.face_registered_at,
-                leave_balance: lb.length > 0 ? lb[0] : null
+                leave_balance: lb
             }
         });
     } catch (error) {

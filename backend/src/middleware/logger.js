@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+const prisma = require('../config/prisma');
 
 // Request logging middleware
 const requestLogger = async (req, res, next) => {
@@ -32,26 +32,24 @@ const normalizeIpAddress = (ip) => {
     return ip;
 };
 
-// Audit logging function using mysql2
+// Audit logging function using Prisma
 const createAuditLog = async (userId, action, entityType, entityId, oldValues, newValues, reason = null, ipAddress = null) => {
     try {
         const { v4: uuidv4 } = require('uuid');
         const normalizedIp = normalizeIpAddress(ipAddress);
-        await pool.execute(
-            `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, old_values, new_values, reason, ip_address, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-            [
-                uuidv4(),
-                userId || null,
+        await prisma.auditLog.create({
+            data: {
+                id: uuidv4(),
+                userId: userId || null,
                 action,
                 entityType,
-                entityId || null,
-                oldValues ? JSON.stringify(oldValues) : null,
-                newValues ? JSON.stringify(newValues) : null,
-                reason || null,
-                normalizedIp
-            ]
-        );
+                entityId: entityId || null,
+                oldValues: oldValues ? JSON.stringify(oldValues) : null,
+                newValues: newValues ? JSON.stringify(newValues) : null,
+                reason: reason || null,
+                ipAddress: normalizedIp
+            }
+        });
     } catch (error) {
         console.error('Failed to create audit log:', error);
     }
