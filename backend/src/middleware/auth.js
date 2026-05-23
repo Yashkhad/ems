@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const prisma = require('../config/prisma');
+const pool = require('../config/db');
 
 // Authentication middleware
 const authenticate = async (req, res, next) => {
@@ -14,32 +14,27 @@ const authenticate = async (req, res, next) => {
         }
         
         const token = authHeader.split(' ')[1];
-        
-        // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Get user from database using Prisma
-        const user = await prisma.user.findUnique({
-            where: { id: decoded.userId, status: 'ACTIVE' },
-            include: {
-                department: { select: { name: true } },
-                shift: { select: { name: true } }
-            }
-        });
+        // Get user from database using mysql2
+        const [rows] = await pool.execute(
+            `SELECT u.*, d.name AS department_name, s.name AS shift_name
+             FROM users u
+             LEFT JOIN departments d ON u.department_id = d.id
+             LEFT JOIN shifts s ON u.shift_id = s.id
+             WHERE u.id = ? AND u.status = 'ACTIVE'`,
+            [decoded.userId]
+        );
         
-        if (!user) {
+        if (rows.length === 0) {
             return res.status(401).json({
                 success: false,
                 error: 'User not found or inactive'
             });
         }
         
-        // Attach user to request (mapping properties for compatibility)
-        req.user = {
-            ...user,
-            department_name: user.department?.name,
-            shift_name: user.shift?.name
-        };
+        const user = rows[0];
+        req.user = user;
         req.userId = decoded.userId;
         
         next();
@@ -88,14 +83,8 @@ const authorize = (...allowedRoles) => {
 };
 
 const isAdmin = authorize('ADMIN');
-
-// Check if user is HR or Admin
 const isHROrAdmin = authorize('ADMIN', 'HR');
-
-// Check if user is GM or Admin (can manage all departments)
 const isGMOrAdmin = authorize('ADMIN', 'GM');
-
-// Check if user is Manager or above
 const isManagerOrAbove = authorize('ADMIN', 'HR', 'MANAGER', 'GM');
 
 // Check if user can access specific employee data
@@ -104,24 +93,21 @@ const canAccessEmployee = async (req, res, next) => {
         const targetUserId = req.params.userId || req.params.id;
         const currentUser = req.user;
         
-        // Admin, HR, and GM can access all employees
         if (['ADMIN', 'HR', 'GM'].includes(currentUser.role)) {
             return next();
         }
         
-        // Users can access their own data
         if (currentUser.id === targetUserId) {
             return next();
         }
         
-        // Managers can access their team members
         if (currentUser.role === 'MANAGER') {
-            const teamMember = await prisma.user.findFirst({
-                where: { managerId: currentUser.id, id: targetUserId },
-                select: { id: true }
-            });
+            const [rows] = await pool.execute(
+                'SELECT id FROM users WHERE manager_id = ? AND id = ?',
+                [currentUser.id, targetUserId]
+            );
             
-            if (teamMember) {
+            if (rows.length > 0) {
                 return next();
             }
         }

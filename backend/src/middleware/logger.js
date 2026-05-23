@@ -1,4 +1,4 @@
-const prisma = require('../config/prisma');
+const pool = require('../config/db');
 
 // Request logging middleware
 const requestLogger = async (req, res, next) => {
@@ -24,36 +24,34 @@ const requestLogger = async (req, res, next) => {
     next();
 };
 
-// Helper to normalize IP address for PostgreSQL INET type
+// Helper to normalize IP address
 const normalizeIpAddress = (ip) => {
     if (!ip) return null;
-    // Remove IPv6 prefix for IPv4 addresses
-    if (ip.startsWith('::ffff:')) {
-        return ip.substring(7);
-    }
-    // Handle localhost variations
-    if (ip === '::1') {
-        return '127.0.0.1';
-    }
+    if (ip.startsWith('::ffff:')) return ip.substring(7);
+    if (ip === '::1') return '127.0.0.1';
     return ip;
 };
 
-// Audit logging function using Prisma
+// Audit logging function using mysql2
 const createAuditLog = async (userId, action, entityType, entityId, oldValues, newValues, reason = null, ipAddress = null) => {
     try {
+        const { v4: uuidv4 } = require('uuid');
         const normalizedIp = normalizeIpAddress(ipAddress);
-        await prisma.auditLog.create({
-            data: {
-                userId: userId,
-                action: action,
-                entityType: entityType,
-                entityId: entityId,
-                oldValues: oldValues ? JSON.stringify(oldValues) : null,
-                newValues: newValues ? JSON.stringify(newValues) : null,
-                reason: reason,
-                ipAddress: normalizedIp
-            }
-        });
+        await pool.execute(
+            `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, old_values, new_values, reason, ip_address, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [
+                uuidv4(),
+                userId || null,
+                action,
+                entityType,
+                entityId || null,
+                oldValues ? JSON.stringify(oldValues) : null,
+                newValues ? JSON.stringify(newValues) : null,
+                reason || null,
+                normalizedIp
+            ]
+        );
     } catch (error) {
         console.error('Failed to create audit log:', error);
     }

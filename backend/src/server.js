@@ -63,27 +63,32 @@ app.use(requestLogger);
 // Static files
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-    res.status(200).json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        service: 'EMS Attendance API',
-        version: '1.0.0'
+// Health check and API routes helper
+const registerRoutes = (prefix = '') => {
+    app.get(`${prefix}/health`, (req, res) => {
+        res.status(200).json({
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            service: 'EMS Attendance API',
+            version: '1.0.0'
+        });
     });
-});
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/leaves', leaveRoutes);
-app.use('/api/departments', departmentRoutes);
-app.use('/api/shifts', shiftRoutes);
-app.use('/api/holidays', holidayRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/face', faceRoutes);
-app.use('/api/config', configRoutes);
+    app.use(`${prefix}/auth`, authRoutes);
+    app.use(`${prefix}/users`, userRoutes);
+    app.use(`${prefix}/attendance`, attendanceRoutes);
+    app.use(`${prefix}/leaves`, leaveRoutes);
+    app.use(`${prefix}/departments`, departmentRoutes);
+    app.use(`${prefix}/shifts`, shiftRoutes);
+    app.use(`${prefix}/holidays`, holidayRoutes);
+    app.use(`${prefix}/reports`, reportRoutes);
+    app.use(`${prefix}/face`, faceRoutes);
+    app.use(`${prefix}/config`, configRoutes);
+};
+
+// Register routes with and without /api prefix
+registerRoutes('/api');
+registerRoutes('');
 
 // Serve frontend in production
 if (process.env.NODE_ENV === 'production') {
